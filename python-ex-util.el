@@ -14,10 +14,23 @@
                     (file* (if begin-with-slash-p (substring-no-properties file 1 (length file)) file)))
                (concat "/tmp/" file*)))))
 
+  (defun util.current-rc ()
+    (format "~/.%src" (file-name-nondirectory (getenv "SHELL"))))
+
+  (defun util.workon-path-maybe ()
+    "if enable virtualenvwrapper then return workon home path"
+    (getenv "WORKON_HOME"))
+
+  (defun util.current-env-maybe ()
+    (@and-let* ((workon-path (util.workon-path-maybe))
+                (rx (format "%s/\\([^/]+\\)" (expand-file-name workon-path)))
+                ((string-match rx default-directory)))
+      (match-string 1 default-directory)))
+
   (defun util.command-format-with-current-env (cmd)
     "return format string branching venv or not"
-    (or (@and-let* ((env (@current-env-maybe)))
-          (format "(source %s && workon %s && %s %%s)" (@current-rc) env cmd))
+    (or (@and-let* ((env (util.current-env-maybe)))
+          (format "(source %s && workon %s && %s %%s)" (util.current-rc) env cmd))
         (format "%s %%s" cmd)))
 
   ;; default-functionを書き換えたいね。
@@ -79,23 +92,13 @@
   (put '@aif 'lisp-indent-function 2)
   
     ;;; current-python
-  (defun @current-rc ()
-    (format "~/.%src" (file-name-nondirectory (getenv "SHELL"))))
-
-  (defun @current-env-maybe ()
-    (@and-let* ((workon-path (getenv "WORKON_HOME"))
-                (rx (format "%s/\\([^/]+\\)" (expand-file-name workon-path)))
-                ((string-match rx default-directory)))
-      (match-string 1 default-directory)))
-
   (defun @current-python () 
     (util.command-format-with-current-env "python"))
 
   ;; interactive command using `python-ex-util:current-python'
   (defun @describe-current-python () (interactive)
-    (message
-     (shell-command-to-string
-      (format (@current-python) "-c 'import os; os.system(\"which python\")'"))))
+    (util.execute-command-with-current-env 
+     "python" "-c 'import os; os.system(\"which python\")'"))
 
   (defvar @tmp-file-auto-cleaning-p nil
     "this variable is true, then, auto cleaning after using tmp-file(this occured is working on non-file buffer),")
@@ -149,15 +152,22 @@
 
   (defun @current-library-path ()
     "[maybe] return current library path from import sentence"
-    (and-let* ((module (@module-tokens-in-current-line)))
+    (@and-let* ((module (@module-tokens-in-current-line)))
       (@module-name-from-path (@module-tokens-in-current-line))))
 
   (defun @ffap/import-sentence (other-frame-p) (interactive "P")
     "ffap for import sentence"
-    (and-let* ((path (@current-library-path)))
+    (@and-let* ((path (@current-library-path)))
       (cond (other-frame-p (find-file-other-frame path))
             (t (find-file path)))))
 
+  ;; venvs
+  (defun @active-venvs (&optional fullpath-p)
+    "from virtualenvwrapper_show_workon_options"
+    (@and-let* ((workon-path (util.workon-path-maybe)))
+      (loop for file in (directory-files workon-path t)
+            when (and (file-directory-p file) (file-exists-p (concat file "/bin/activate")))
+            collect (if fullpath-p file (file-name-nondirectory file)))))
   )
 
 (provide 'python-ex-util)
