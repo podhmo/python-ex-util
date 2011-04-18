@@ -45,6 +45,7 @@
     (let ((clauses (loop for sym in syms collect (\` ((\, sym) (\, sym))))))
       (\` (lexical-let ((\,@ clauses)) (\,@ body)))))
   (put '@with-lexical-bindings 'lisp-indent-function 1)
+
   (defmacro @with-gensyms (syms &rest body)
     (let ((bindings (mapcar (lambda (x) (\` ((\, x) '(\, (gensym))))) syms)))
       (\` (let ((\,@ bindings)) (\,@ body)))))
@@ -54,10 +55,12 @@
     "imported from gauche"
     (\` (@let1 (\, var) (\, val) (\,@ body) (\, var))))
   (put '@rlet1 'lisp-indent-function 2)
+
   (defmacro @let1 (var val &rest body)
     "imported from gauche"
     (\` (let (((\, var) (\, val))) (\,@ body))))
   (put '@let1 'lisp-indent-function 2)
+
   (defmacro @and-let* (bindings &rest body)
     "imported from srfi-2"
     (reduce (function
@@ -74,10 +77,12 @@
             :initial-value
             (\` (progn (\,@ body)))))
   (put '@and-let* 'lisp-indent-function 1)
+
   (defmacro @alambda (args &rest body)
     "Anaphoric lambda. enable to self recursion using `self' anaphorar"
     (\` (labels ((self (\, args) (\,@ body))) (function self))))
   (put '@alambda 'lisp-indent-function 1)
+
   (defmacro @aand (&rest args)
     "Anaphoric and. anaphorar is `it'"
     (cond ((null args)
@@ -91,7 +96,7 @@
     (\` (let ((it (\, test-form))) (if it (\, then-form) (\,@ else-forms)))))
   (put '@aif 'lisp-indent-function 2)
   
-    ;;; current-python
+   ;;; current-python
   (defun @current-python () 
     (util.command-format-with-current-env "python"))
 
@@ -132,11 +137,9 @@
 
 
   (defun @library-path-list ()
-    (let* ((cmd "import sys; D=[d for d in sys.path if not 'bin' in d]; print ','.join(D)")
+    (let* ((script "import sys; D=[d for d in sys.path if not 'bin' in d]; print ','.join(D)")
            (sys-paths-str (shell-command-to-string
-                           (format "%s -c \"%s\""
-                                   (@current-python)
-                                   cmd))))
+                           (format (@current-python) (format "-c \"%s\"" script))))) ;; わかりにくい？
       (cdr (split-string sys-paths-str ","))))
 
   (defun @module-name-from-path (module &optional force-reload-p)
@@ -153,7 +156,7 @@
   (defun @current-library-path ()
     "[maybe] return current library path from import sentence"
     (@and-let* ((module (@module-tokens-in-current-line)))
-      (@module-name-from-path (@module-tokens-in-current-line))))
+      (@module-name-from-path module)))
 
   (defun @ffap/import-sentence (other-frame-p) (interactive "P")
     "ffap for import sentence"
@@ -162,14 +165,13 @@
             (t (find-file path)))))
 
   ;; venvs
-  (defun @active-venvs (&optional fullpath-p)
+  (defun @active-venv-list (&optional fullpath-p)
     "from virtualenvwrapper_show_workon_options"
     (@and-let* ((workon-path (util.workon-path-maybe)))
       (loop for file in (directory-files workon-path t)
             when (and (file-directory-p file) (file-exists-p (concat file "/bin/activate")))
             collect (if fullpath-p file (file-name-nondirectory file)))))
+
   )
 
 (provide 'python-ex-util)
-
-
