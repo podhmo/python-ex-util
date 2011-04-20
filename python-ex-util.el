@@ -14,6 +14,9 @@
                     (file* (if begin-with-slash-p (substring-no-properties file 1 (length file)) file)))
                (concat "/tmp/" file*)))))
 
+  ;; (defun util.first-line-in-string (str)
+  ;;   (car (split-string str "\n")))
+
   (defun util.current-rc ()
     (format "~/.%src" (file-name-nondirectory (getenv "SHELL"))))
 
@@ -121,19 +124,25 @@
              (compile (format (@current-python) file))))))
 
     ;;; ffap from import module sentence
-  (defvar @module-tokens-regexp "[^ .]+\\(\\.[^ .]+\\)*")
+  (setq @module-tokens-regexp "[^\n .]+\\(\\.[^\n .]+\\)*")
+  (setq @module-import-sentence-regexp 
+        (format "^[\n \t]*\\(from +\\(%s\\) +import +[^ \n]+\\|import +\\(%s\\)\\)"
+                @module-tokens-regexp
+                @module-tokens-regexp))
+
+  (defun @find-module-tokens-maybe (&optional beg end)
+    "[maybe] find module import sentence, beg and end are optional (default end value is `point-at-eol')"
+    (when beg
+      (goto-char beg))
+    (let ((end (or end (point-at-eol))))
+      (and (re-search-forward @module-import-sentence-regexp end t 1)
+           (or (match-string-no-properties 4)
+               (match-string-no-properties 2)))))
 
   (defun @module-tokens-in-current-line ()
     "[maybe] return match object or nil"
     (save-excursion
-      (let ((rx (format "^[ \t]*\\(from +\\(%s\\) +import +[^ ]+\\|import +\\(%s\\)\\)"
-                        @module-tokens-regexp
-                        @module-tokens-regexp
-                        )))
-        (goto-char (point-at-bol))
-        (and (re-search-forward rx  (point-at-eol) t 1)
-             (or (match-string-no-properties 4)
-                 (match-string-no-properties 2))))))
+      (@find-module-tokens-maybe (point-at-bol) (point-at-eol))))
 
 
   (defun @library-path-list ()
@@ -175,6 +184,31 @@
   (defun @find-venv () (interactive)
     (find-file
      (completing-read "venv: " (@active-venv-list t))))
+
+  ;; anything
+  (defun @collect-imported-modules-in-buffer (&optional buf)
+    (@let1 buf (or buf (current-buffer))
+      (with-current-buffer buf
+        (goto-char (point-min))
+        (@let1 end (point-max)
+          (loop while t
+                for token = (@find-module-tokens-maybe nil end)
+                if token
+                collect token into modules
+                else
+                return (delete-duplicates modules :test 'string-equal))))))
+
+  (defvar @anything-c-source-imported-modules 
+        '((name . "imported modules")
+          (candidates . (lambda ()
+                          (@collect-imported-modules-in-buffer  anything-current-buffer)))
+          ;;TODO: actionを追加
+          (action . insert)))
+
+  (defun @anything-ffap () (interactive)
+    (@let1 sources (list @anything-c-source-imported-modules)
+      (anything-other-buffer sources " *ffap:python-ex:util*")))
   )
+
 
 (provide 'python-ex-util)

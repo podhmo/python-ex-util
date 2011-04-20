@@ -13,7 +13,7 @@
     (define-key kmap "\C-c\C-f" 'python-ex-util:ffap/import-sentence)))
 
 (defmacro peu:dispatch (py-mode python-mode)
-  `(if (boundp 'py-mode-hook) ,py-mode ,python-mode))
+  `(if (boundp 'py-mode-hook) ',py-mode ',python-mode))
 
 (add-hook (peu:dispatch py-mode-hook python-mode-hook) 'peu:init)
 
