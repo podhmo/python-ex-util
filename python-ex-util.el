@@ -172,6 +172,9 @@
             when (and (file-directory-p file) (file-exists-p (concat file "/bin/activate")))
             collect (if fullpath-p file (file-name-nondirectory file)))))
 
+  (defun @find-venv () (interactive)
+    (find-file
+     (completing-read "venv: " (@active-venv-list t))))
   )
 
 (provide 'python-ex-util)
