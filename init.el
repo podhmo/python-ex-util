@@ -10,7 +10,10 @@
 (defun peu:init ()
   (let ((kmap (current-local-map)))
     (define-key kmap "\C-c@" 'python-ex-util:eval-buffer-with-current-python)
-    (define-key kmap "\C-c\C-f" 'python-ex-util:ffap/import-sentence)))
+    (cond ((fboundp 'anything)
+           (define-key kmap "\C-c\C-f" 'python-ex-util:anything-ffap))
+          (t 
+           (define-key kmap "\C-c\C-f" 'python-ex-util:ffap/import-sentence)))))
 
 (defmacro peu:dispatch (py-mode python-mode)
   `(if (boundp 'py-mode-hook) ',py-mode ',python-mode))

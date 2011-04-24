@@ -14,8 +14,17 @@
                     (file* (if begin-with-slash-p (substring-no-properties file 1 (length file)) file)))
                (concat "/tmp/" file*)))))
 
+  (defun util.shell-command-to-string* (command)
+    (let ((r (shell-command-to-string command)))
+      (substring-no-properties r 0 (- (length r) 1))))
+
   ;; (defun util.first-line-in-string (str)
   ;;   (car (split-string str "\n")))
+
+  (defun* util.find-file-safe (path &key open)
+    (and (file-exists-p path)
+         (file-readable-p path)
+         (funcall (or open 'find-file) path)))
 
   (defun util.current-rc ()
     (format "~/.%src" (file-name-nondirectory (getenv "SHELL"))))
@@ -44,6 +53,19 @@
           (cmd-format (util.command-format-with-current-env cmd)))
       (funcall fun (format cmd-format args-str))))
 
+  (defun util.module-name-from-path (module &optional force-reload-p)
+    "python module -> file path"
+    (@let1 path (replace-regexp-in-string "\\." "/" module)
+      (loop for dir in (@library-path-list)
+            for d = (concat dir "/" path)
+            if (file-exists-p d)
+            return d
+            else
+            for file = (concat d ".py")
+            when (file-exists-p file)
+            return file)))
+
+  ;; macros
   (defmacro @with-lexical-bindings (syms &rest body)
     (let ((clauses (loop for sym in syms collect (\` ((\, sym) (\, sym))))))
       (\` (lexical-let ((\,@ clauses)) (\,@ body)))))
@@ -147,25 +169,14 @@
 
   (defun @library-path-list ()
     (let* ((script "import sys; D=[d for d in sys.path if not 'bin' in d]; print ','.join(D)")
-           (sys-paths-str (shell-command-to-string
+           (sys-paths-str (util.shell-command-to-string*
                            (format (@current-python) (format "-c \"%s\"" script))))) ;; わかりにくい？
       (cdr (split-string sys-paths-str ","))))
-
-  (defun @module-name-from-path (module &optional force-reload-p)
-    (@let1 path (replace-regexp-in-string "\\." "/" module)
-      (loop for dir in (@library-path-list)
-            for d = (concat dir "/" path)
-            if (file-exists-p d)
-            return d
-            else
-            for file = (concat d ".py")
-            when (file-exists-p file)
-            return file)))
 
   (defun @current-library-path ()
     "[maybe] return current library path from import sentence"
     (@and-let* ((module (@module-tokens-in-current-line)))
-      (@module-name-from-path module)))
+      (util.module-name-from-path module)))
 
   (defun @ffap/import-sentence (other-frame-p) (interactive "P")
     "ffap for import sentence"
@@ -186,29 +197,49 @@
      (completing-read "venv: " (@active-venv-list t))))
 
   ;; anything
-  (defun @collect-imported-modules-in-buffer (&optional buf)
-    (@let1 buf (or buf (current-buffer))
-      (with-current-buffer buf
-        (goto-char (point-min))
-        (@let1 end (point-max)
-          (loop while t
-                for token = (@find-module-tokens-maybe nil end)
-                if token
-                collect token into modules
-                else
-                return (delete-duplicates modules :test 'string-equal))))))
+  (when (or (fboundp 'anything) (require 'anything nil t))
 
-  (defvar @anything-c-source-imported-modules 
-        '((name . "imported modules")
-          (candidates . (lambda ()
-                          (@collect-imported-modules-in-buffer  anything-current-buffer)))
-          ;;TODO: actionを追加
-          (action . insert)))
+    (defun @collect-imported-modules-in-buffer (&optional buf)
+      (@let1 buf (or buf (current-buffer))
+        (with-current-buffer buf
+          (goto-char (point-min))
+          (@let1 end (point-max)
+            (loop while t
+                  for token = (@find-module-tokens-maybe nil end)
+                  if token
+                  collect token into modules
+                  else
+                  return (delete-duplicates modules :test 'string-equal))))))
 
-  (defun @anything-ffap () (interactive)
-    (@let1 sources (list @anything-c-source-imported-modules)
-      (anything-other-buffer sources " *ffap:python-ex:util*")))
+    (setq @anything-c-source-active-enves
+          '((name . "active virturl envs")
+            (candidates . (lambda () (@active-venv-list t)))
+            ;;TODO: 便利なフローを考える
+            (action . find-file)))
+
+    (setq @anything-c-source-imported-modules 
+          '((name . "imported modules")
+            (candidates . (lambda ()
+                            (@collect-imported-modules-in-buffer  anything-current-buffer)))
+            ;;TODO: actionを追加
+            (action . (("find-file" . 
+                        (lambda (c)
+                          (and-let* ((path (util.module-name-from-path c)))
+                            (util.find-file-safe path))))
+                       ("find-file-other-frame" .
+                        (lambda (c)
+                          (and-let* ((path (util.module-name-from-path c)))
+                            (util.find-file-safe path :open 'find-file-other-frame))))
+                       ))))
+
+    (defun @anything-ffap () (interactive)
+      (@let1 sources (list @anything-c-source-imported-modules
+                           @anything-c-source-active-enves)
+        (anything-other-buffer sources " *ffap:python-ex:util*")))
+    )
   )
+
+
 
 
 (provide 'python-ex-util)
