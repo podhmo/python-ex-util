@@ -7,6 +7,30 @@
      (% peu:))
 
   ;; utility
+  (defun %fresh-buffer (buf &optional force-erase-p)
+    (cond ((and (stringp buf) (not (get-buffer buf)))
+           (values (get-buffer-create buf) t))
+          (t
+           (@let1 buf (if (bufferp buf) buf (get-buffer buf))
+             (when force-erase-p
+               (with-current-buffer buf
+                 (erase-buffer)))
+             (values buf force-erase-p)))))
+
+  (defun %command-to-buffer-ansync (procname bufname cmd &optional force-reload-p call-back)
+    (@let1 call-back (or call-back 'display-buffer)
+      (multiple-value-bind (buf new-p)
+          (%fresh-buffer bufname force-reload-p)
+        (cond (new-p
+               (set-process-sentinel
+                (start-process-shell-command procname buf cmd)
+                (@with-lexical-bindings (call-back)
+                  (lambda (process status)
+                    (funcall call-back (process-buffer process))))))
+              (t (funcall call-back (get-buffer bufname))))
+        buf)))
+  
+
   (defun %tmp-file (&optional file)
     "return uniq name in tmp-dirctory"
     (cond ((null file) (%tmp-file (format "peu:%s.py" (gensym))))
@@ -217,6 +241,26 @@
     (find-file
      (completing-read "venv: " (@active-venv-list t))))
 
+
+  ;; completing from all module (too heavy)
+  (defvar @previous-python nil)
+
+  (defun @all-modules-to-buffer (&optional force-reload-p call-back)
+    ;; return buffer
+    (@let1 python (@current-python)
+      (let* ((reload-p (or force-reload-p (not (string-equal @previous-python python))))
+             (cmd (format python "-c 'import pydoc; import sys; pydoc.ModuleScanner().run(lambda path,modname,desc : sys.stdout.write(modname+\"\\n\"))' 2>/dev/null | sort -u"))
+             (bufname "*python all-modules*"))
+
+        (setq @previous-python python)
+        (%command-to-buffer-ansync "python-ex-util:all-module"
+                                   bufname cmd reload-p call-back))))
+
+  (defun @all-modules-to-buffer-reload ()
+    (message "collecting python module informations ...")
+    (@all-modules-to-buffer 
+     t (lambda (buf) (message "... done"))))
+
   ;; anything
   (when (or (fboundp 'anything) (require 'anything nil t))
 
@@ -235,67 +279,55 @@
     (setq @anything-c-source-active-enves
           '((name . "active virturl envs")
             (candidates . (lambda () (@active-venv-list t)))
+            (update . @all-modules-to-buffer-reload)
             ;;TODO: 便利なフローを考える
             (action . find-file)))
+
+    (define-anything-type-attribute 'python-module
+      '((action . (("fipnd-file" . 
+                   (lambda (c)
+                     (and-let* ((path (@module-name-to-file-path c)))
+                       (%find-file-safe path))))
+                  ("find-file-other-frame" .
+                   (lambda (c)
+                     (and-let* ((path (@module-name-to-file-path c)))
+                       (%find-file-safe path :open 'find-file-other-frame))))
+                  ("web-page" .
+                   (lambda (c)
+                     (and-let* ((url (@module-name-to-web-page c)))
+                       (browse-url-generic url))))
+                  ("info-egg" .
+                   (lambda (c)
+                     (and-let* ((path (@module-name-to-egg-info c)))
+                       (%find-file-safe path)))))))
+      "Python module")
 
     (setq @anything-c-source-imported-modules
           '((name . "imported modules")
             (candidates . (lambda ()
                             (@collect-imported-modules-in-buffer  anything-current-buffer)))
-            ;;TODO: actionを追加
-            (action . (("fipnd-file" . 
-                        (lambda (c)
-                          (and-let* ((path (@module-name-to-file-path c)))
-                            (%find-file-safe path))))
-                       ("find-file-other-frame" .
-                        (lambda (c)
-                          (and-let* ((path (@module-name-to-file-path c)))
-                            (%find-file-safe path :open 'find-file-other-frame))))
-                       ("web-page" .
-                        (lambda (c)
-                          (and-let* ((url (@module-name-to-web-page c)))
-                            (browse-url-generic url))))
-                       ("info-egg" .
-                        (lambda (c)
-                          (and-let* ((path (@module-name-to-egg-info c)))
-                            (%find-file-safe path))))
-                       ))))
+            (update . @all-modules-to-buffer-reload)
+            (type . python-module)))
 
-    (defun @anything-ffap () (interactive)
-      (@let1 sources (list @anything-c-source-imported-modules
-                           @anything-c-source-active-enves)
-        (anything-other-buffer sources " *ffap:python-ex:util*")))
-    )
+      (setq @anything-c-source-all-modules
+            '((name . "python all module")
+              (candidates-in-buffer)
+              (init . (lambda () 
+                        (anything-candidate-buffer
+                         (@all-modules-to-buffer 
+                          nil 'identity))))
+              (update .  @all-modules-to-buffer-reload)
+              (type . python-module)))
 
-  ;; completing from all module (too heavy)
-  (defvar @all-modules nil)
-  (defun @all-modules (&optional force-reloadp)
-    (when force-reloadp (setq @all-modules nil))
-    (or @all-modules
-        (setq @all-modules (@all-modules-1))))
-
-  (defun @all-modules-1 ()
-    (let* ((cmd (format (@current-python) "-c 'import pydoc; import sys; pydoc.ModuleScanner().run(lambda path,modname,desc : sys.stdout.write(modname+\"\\n\"))' 2>/dev/null | sort -u"))
-           (modules-str (shell-command-to-string cmd)))
-      (split-string modules-str "\n")))
-
-  (defun @reload-all-modules () (interactive)
-    (message "collecting all modules ...")
-    (@all-modules t)
-    (message "...done"))
-
-
-  (defun @complete-module (init)
-    (let* ((minibuffer-local-completion-map
-            (@rlet1 kmap (copy-keymap minibuffer-local-completion-map)
-              (define-key kmap "\C-c\C-u" '@reload-all-modules)))
-           (table (all-completions init (@all-modules))))
-      (cond ((= 1 (length table)) (car table))
-            (t (completing-read "module:(update C-c C-u) " table nil nil init)))))
-  )
-)
+      (defun @anything-ffap () (interactive)
+        (@let1 sources (list @anything-c-source-imported-modules
+                             @anything-c-source-active-enves
+                             @anything-c-source-all-modules)
+          (anything-other-buffer sources " *ffap:python-ex:util*")))
+      ))
 
 
 
 
-(provide 'python-ex-util)
+
+  (provide 'python-ex-util)
