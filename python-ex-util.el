@@ -167,7 +167,7 @@
         (format "%s/%s.html" @standard-doc-url-base module)))
 
    ;;; current-python
-  (defun @current-python () 
+  (defun @current-python-format () 
     (%command-format-with-current-env "python"))
 
   ;; interactive command using `python-ex-util:current-python'
@@ -188,7 +188,7 @@
                  (@eval-buffer-with-current-python file))
                (when @tmp-file-auto-cleaning-p (delete-file file))))
             (t
-             (compile (format (@current-python) file))))))
+             (compile (format (@current-python-format) file))))))
 
     ;;; ffap from import module sentence
   (setq @module-tokens-regexp "[^\n .]+\\(\\.[^\n .]+\\)*")
@@ -215,7 +215,7 @@
   (defun @library-path-list ()
     (let* ((script "import sys; D=[d for d in sys.path if not 'bin' in d]; print ','.join(D)")
            (sys-paths-str (%shell-command-to-string*
-                           (format (@current-python) (format "-c \"%s\"" script))))) ;; わかりにくい？
+                           (format (@current-python-format) (format "-c \"%s\"" script))))) ;; わかりにくい？
       (cdr (split-string sys-paths-str ","))))
 
   (defun @current-library-path ()
@@ -228,6 +228,19 @@
     (@and-let* ((path (@current-library-path)))
       (cond (other-frame-p (find-file-other-frame path))
             (t (find-file path)))))
+
+  ;; flymake
+  (defvar @flymake-command "epylint")
+  (defun @flymake-python-init ()
+    (let* ((temp-file (flymake-init-create-temp-buffer-copy
+                       'flymake-create-temp-inplace))
+           (local-file (file-relative-name
+                        temp-file
+                        (file-name-directory buffer-file-name)))
+           (cmd (format (%command-format-with-current-env @flymake-command) "")))
+      (list cmd (list local-file))))
+  ;; (add-to-list 'flymake-allowed-file-name-masks '("\\.py\\'" @flymake-python-init))
+
 
   ;; venvs
   (defun @active-venv-list (&optional fullpath-p)
@@ -247,7 +260,7 @@
 
   (defun @all-modules-to-buffer (&optional force-reload-p call-back)
     ;; return buffer
-    (@let1 python (@current-python)
+    (@let1 python (@current-python-format)
       (let* ((reload-p (or force-reload-p (not (string-equal @previous-python python))))
              (cmd (format python "-c 'import pydoc; import sys; pydoc.ModuleScanner().run(lambda path,modname,desc : sys.stdout.write(modname+\"\\n\"))' 2>/dev/null | sort -u"))
              (bufname "*python all-modules*"))
@@ -320,14 +333,11 @@
               (type . python-module)))
 
       (defun @anything-ffap () (interactive)
-        (@let1 sources (list @anything-c-source-imported-modules
+        (@let1 sources (list anything-c-source-imenu
+                             @anything-c-source-imported-modules
                              @anything-c-source-active-enves
                              @anything-c-source-all-modules)
           (anything-other-buffer sources " *ffap:python-ex:util*")))
       ))
 
-
-
-
-
-  (provide 'python-ex-util)
+(provide 'python-ex-util)
