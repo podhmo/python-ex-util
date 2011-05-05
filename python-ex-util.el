@@ -243,7 +243,7 @@
             (candidates . (lambda ()
                             (@collect-imported-modules-in-buffer  anything-current-buffer)))
             ;;TODO: actionを追加
-            (action . (("find-file" . 
+            (action . (("fipnd-file" . 
                         (lambda (c)
                           (and-let* ((path (@module-name-to-file-path c)))
                             (%find-file-safe path))))
@@ -255,6 +255,10 @@
                         (lambda (c)
                           (and-let* ((url (@module-name-to-web-page c)))
                             (browse-url-generic url))))
+                       ("info-egg" .
+                        (lambda (c)
+                          (and-let* ((path (@module-name-to-egg-info c)))
+                            (%find-file-safe path))))
                        ))))
 
     (defun @anything-ffap () (interactive)
@@ -262,7 +266,34 @@
                            @anything-c-source-active-enves)
         (anything-other-buffer sources " *ffap:python-ex:util*")))
     )
+
+  ;; completing from all module (too heavy)
+  (defvar @all-modules nil)
+  (defun @all-modules (&optional force-reloadp)
+    (when force-reloadp (setq @all-modules nil))
+    (or @all-modules
+        (setq @all-modules (@all-modules-1))))
+
+  (defun @all-modules-1 ()
+    (let* ((cmd (format (@current-python) "-c 'import pydoc; import sys; pydoc.ModuleScanner().run(lambda path,modname,desc : sys.stdout.write(modname+\"\\n\"))' 2>/dev/null | sort -u"))
+           (modules-str (shell-command-to-string cmd)))
+      (split-string modules-str "\n")))
+
+  (defun @reload-all-modules () (interactive)
+    (message "collecting all modules ...")
+    (@all-modules t)
+    (message "...done"))
+
+
+  (defun @complete-module (init)
+    (let* ((minibuffer-local-completion-map
+            (@rlet1 kmap (copy-keymap minibuffer-local-completion-map)
+              (define-key kmap "\C-c\C-u" '@reload-all-modules)))
+           (table (all-completions init (@all-modules))))
+      (cond ((= 1 (length table)) (car table))
+            (t (completing-read "module:(update C-c C-u) " table nil nil init)))))
   )
+)
 
 
 
