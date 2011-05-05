@@ -4,7 +4,7 @@
 
 (with-prefix 
     ((@ python-ex-util:)
-     (util. peu:))
+     (% peu:))
 
   ;; utility
   (defun %tmp-file (&optional file)
@@ -52,18 +52,6 @@
           (args-str (if (listp args) (mapconcat 'identity args " ") args)) 
           (cmd-format (%command-format-with-current-env cmd)))
       (funcall fun (format cmd-format args-str))))
-
-  (defun %module-name-from-path (module &optional force-reload-p)
-    "python module -> file path"
-    (@let1 path (replace-regexp-in-string "\\." "/" module)
-      (loop for dir in (@library-path-list)
-            for d = (concat dir "/" path)
-            if (file-exists-p d)
-            return d
-            else
-            for file = (concat d ".py")
-            when (file-exists-p file)
-            return file)))
 
   ;; macros
   (defmacro @with-lexical-bindings (syms &rest body)
@@ -121,6 +109,39 @@
     (\` (let ((it (\, test-form))) (if it (\, then-form) (\,@ else-forms)))))
   (put '@aif 'lisp-indent-function 2)
   
+
+  (defvar @standard-doc-url-base "http://docs.python.org/library")
+
+  (defun @module-name-to-file-path (module &optional force-reload-p) ;;force-reload is not implemented
+    "python module -> file path"
+    (@let1 path (replace-regexp-in-string "\\." "/" module)
+      (loop for dir in (@library-path-list)
+            for d = (concat dir "/" path)
+            if (file-exists-p d)
+            return d
+            else
+            for file = (concat d ".py")
+            when (file-exists-p file)
+            return file)))
+
+  (defun @module-name-to-egg-info (module &optional force-reload-p) ;;force-reload is not implemented
+    (let* ((module-top (car (split-string module "\\.")))
+           (info-rx (format "\\(%s\\|%s\\)-.*egg-info$" (capitalize module-top) module-top)))
+      (loop for dir in (@library-path-list)
+            when (and (file-exists-p dir) (file-directory-p dir))
+            for candidate = (directory-files dir t info-rx t)
+            when candidate return (car candidate))))
+
+  (defun @module-name-to-web-page (module &optional force-reload-p) ;;force-reload is not implemented
+    (or (@and-let* ((egg-info (@module-name-to-egg-info module force-reload-p))
+                    (file (format "%s/PKG-INFO" egg-info)))
+          (message egg-info)
+          (with-current-buffer (find-file-noselect file)
+            (goto-char (point-min))
+            (re-search-forward "Home-page: *\\(.+\\)" nil t 1)
+            (match-string 1)))
+        (format "%s/%s.html" @standard-doc-url-base module)))
+
    ;;; current-python
   (defun @current-python () 
     (%command-format-with-current-env "python"))
@@ -176,7 +197,7 @@
   (defun @current-library-path ()
     "[maybe] return current library path from import sentence"
     (@and-let* ((module (@module-tokens-in-current-line)))
-      (%module-name-from-path module)))
+      (@module-name-to-file-path module)))
 
   (defun @ffap/import-sentence (other-frame-p) (interactive "P")
     "ffap for import sentence"
@@ -217,19 +238,23 @@
             ;;TODO: 便利なフローを考える
             (action . find-file)))
 
-    (setq @anything-c-source-imported-modules 
+    (setq @anything-c-source-imported-modules
           '((name . "imported modules")
             (candidates . (lambda ()
                             (@collect-imported-modules-in-buffer  anything-current-buffer)))
             ;;TODO: actionを追加
             (action . (("find-file" . 
                         (lambda (c)
-                          (and-let* ((path (%module-name-from-path c)))
+                          (and-let* ((path (@module-name-to-file-path c)))
                             (%find-file-safe path))))
                        ("find-file-other-frame" .
                         (lambda (c)
-                          (and-let* ((path (%module-name-from-path c)))
+                          (and-let* ((path (@module-name-to-file-path c)))
                             (%find-file-safe path :open 'find-file-other-frame))))
+                       ("web-page" .
+                        (lambda (c)
+                          (and-let* ((url (@module-name-to-web-page c)))
+                            (browse-url-generic url))))
                        ))))
 
     (defun @anything-ffap () (interactive)
