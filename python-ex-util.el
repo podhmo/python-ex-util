@@ -229,18 +229,15 @@
       (cond (other-frame-p (find-file-other-frame path))
             (t (find-file path)))))
 
+  
   ;; flymake
   (defvar @flymake-command "epylint")
   (defun @flymake-python-init ()
     (let* ((temp-file (flymake-init-create-temp-buffer-copy
                        'flymake-create-temp-inplace))
-           (local-file (file-relative-name
-                        temp-file
-                        (file-name-directory buffer-file-name)))
-           (cmd (format (%command-format-with-current-env @flymake-command) "")))
-      (list cmd (list local-file))))
-  ;; (add-to-list 'flymake-allowed-file-name-masks '("\\.py\\'" @flymake-python-init))
-
+           (cmd (format (%command-format-with-current-env @flymake-command) temp-file)))
+      (list shell-file-name (list shell-command-switch cmd) default-directory)))
+  ;;(add-to-list 'flymake-allowed-file-name-masks '("\\.py\\'" @flymake-python-init))
 
   ;; venvs
   (defun @active-venv-list (&optional fullpath-p)
@@ -297,7 +294,7 @@
             (action . find-file)))
 
     (define-anything-type-attribute 'python-module
-      '((action . (("fipnd-file" . 
+      '((action . (("find-file" . 
                    (lambda (c)
                      (and-let* ((path (@module-name-to-file-path c)))
                        (%find-file-safe path))))
@@ -339,5 +336,4 @@
                              @anything-c-source-all-modules)
           (anything-other-buffer sources " *ffap:python-ex:util*")))
       ))
-
 (provide 'python-ex-util)
