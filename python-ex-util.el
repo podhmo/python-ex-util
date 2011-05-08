@@ -7,7 +7,7 @@
      (% peu:))
 
   ;; utility
-  (defun %fresh-buffer (buf &optional force-erase-p)
+  (defun %fresh-buffer-and-is-created (buf &optional force-erase-p)
     (cond ((and (stringp buf) (not (get-buffer buf)))
            (values (get-buffer-create buf) t))
           (t
@@ -20,7 +20,7 @@
   (defun %command-to-buffer-ansync (procname bufname cmd &optional force-reload-p call-back)
     (@let1 call-back (or call-back 'display-buffer)
       (multiple-value-bind (buf new-p)
-          (%fresh-buffer bufname force-reload-p)
+          (%fresh-buffer-and-is-created bufname force-reload-p)
         (cond (new-p
                (set-process-sentinel
                 (start-process-shell-command procname buf cmd)
@@ -295,21 +295,21 @@
 
     (define-anything-type-attribute 'python-module
       '((action . (("find-file" . 
-                   (lambda (c)
-                     (and-let* ((path (@module-name-to-file-path c)))
-                       (%find-file-safe path))))
-                  ("find-file-other-frame" .
-                   (lambda (c)
-                     (and-let* ((path (@module-name-to-file-path c)))
-                       (%find-file-safe path :open 'find-file-other-frame))))
-                  ("web-page" .
-                   (lambda (c)
-                     (and-let* ((url (@module-name-to-web-page c)))
-                       (browse-url-generic url))))
-                  ("info-egg" .
-                   (lambda (c)
-                     (and-let* ((path (@module-name-to-egg-info c)))
-                       (%find-file-safe path)))))))
+                    (lambda (c)
+                      (and-let* ((path (@module-name-to-file-path c)))
+                        (%find-file-safe path))))
+                   ("find-file-other-frame" .
+                    (lambda (c)
+                      (and-let* ((path (@module-name-to-file-path c)))
+                        (%find-file-safe path :open 'find-file-other-frame))))
+                   ("web-page" .
+                    (lambda (c)
+                      (and-let* ((url (@module-name-to-web-page c)))
+                        (browse-url-generic url))))
+                   ("info-egg" .
+                    (lambda (c)
+                      (and-let* ((path (@module-name-to-egg-info c)))
+                        (%find-file-safe path)))))))
       "Python module")
 
     (setq @anything-c-source-imported-modules
@@ -319,21 +319,98 @@
             (update . @all-modules-to-buffer-reload)
             (type . python-module)))
 
-      (setq @anything-c-source-all-modules
-            '((name . "python all module")
-              (candidates-in-buffer)
-              (init . (lambda () 
-                        (anything-candidate-buffer
-                         (@all-modules-to-buffer 
-                          nil 'identity))))
-              (update .  @all-modules-to-buffer-reload)
-              (type . python-module)))
+    (setq @anything-c-source-all-modules
+          '((name . "python all module")
+            (candidates-in-buffer)
+            (init . (lambda () 
+                      (anything-candidate-buffer
+                       (@all-modules-to-buffer 
+                        nil 'identity))))
+            (update .  @all-modules-to-buffer-reload)
+            (type . python-module)))
 
-      (defun @anything-ffap () (interactive)
-        (@let1 sources (list anything-c-source-imenu
-                             @anything-c-source-imported-modules
-                             @anything-c-source-active-enves
-                             @anything-c-source-all-modules)
-          (anything-other-buffer sources " *ffap:python-ex:util*")))
-      ))
+    (defun @anything-ffap () (interactive)
+      (@let1 sources (list anything-c-source-imenu
+                           @anything-c-source-imported-modules
+                           @anything-c-source-active-enves
+                           @anything-c-source-all-modules)
+        (anything-other-buffer sources " *ffap:python-ex:util*")))
+
+    (setq @anything-c-source-insert-module
+          '((name . "python module insert")
+            (candidates-in-buffer)
+            (init . (lambda () 
+                      (anything-candidate-buffer
+                       (@all-modules-to-buffer 
+                        nil 'identity))))
+            (update .  @all-modules-to-buffer-reload)
+            (action . (("insert" . 
+                        (lambda (c)
+                          (save-excursion
+                            (goto-char (point-min))
+                            (while (looking-at "^#")
+                              (forward-line 1))
+                            (insert "import" c "\n"))))))))
+
+    (defun @anything-insert-module () (interactive)
+      (anything-other-buffer (list @anything-c-source-insert-module)
+                             " *insert:python-ex:util*"))
+    ))
+
+;; test
+
+;; 41:  (defun %shell-command-to-string* (command)
+;; 45:  ;; (defun %first-line-in-string (str)
+;; 48:  (defun* %find-file-safe (path &key open)
+;; 53:  (defun %current-rc ()
+;; 56:  (defun %workon-path-maybe ()
+;; 60:  (defun %current-env-maybe ()
+;; 66:  (defun %command-format-with-current-env (cmd)
+;; 73:  (defun %execute-command-with-current-env (cmd args &optional execute-function)
+
+(when (require 'chibi-test nil t)
+  (with-shortcut-current-buffer
+   (with-chibi-test*
+    (section: "util"
+              (section "%fresh-buffer-and-is-created"
+                       (@let1 bufname "*f*"
+                         (when (get-buffer bufname) (kill-buffer bufname))
+                         
+                         (test-true: "get fresh new buffer" 
+                                     (multiple-value-bind (buf is-new-p)
+                                         (%fresh-buffer-and-is-created bufname)
+                                       (and (bufferp buf) (buffer-live-p buf)
+                                            is-new-p)))
+                         
+                         (test-true: "get fresh but not new buffer"
+                                     (multiple-value-bind (buf is-new-p)
+                                         (%fresh-buffer-and-is-created bufname)
+                                       (and (bufferp buf) (buffer-live-p buf)
+                                            (null is-new-p))))
+
+                         
+                         (test-true: "get fresh buffer (of course, buffer-string is zero length)"
+                                     (progn
+                                       (with-current-buffer (get-buffer bufname)
+                                         (insert "heheheh"))
+                                       (multiple-value-bind (buf is-new-p)
+                                           (%fresh-buffer-and-is-created bufname t)
+                                         (and (bufferp buf) (buffer-live-p buf)
+                                              (zerop (length (with-current-buffer buf (buffer-string))))))))))
+
+              (section "%command-to-buffer-ansync"
+                       (let ((bufname  "*buf*"))
+                         (test: "async ???" ""
+                                (@with-lexical-bindings (bufname)
+                                  (%command-to-buffer-ansync 
+                                   "ls" bufname "ls" t 
+                                   (lambda (b)
+                                     (test-not: "async !!!" 0 (with-current-buffer b (buffer-string)))))
+                                  (with-current-buffer (get-buffer bufname)
+                                    (buffer-string))))))
+
+              (section "%tmp-file"
+                       (test-not "tmp-file generate uniq filename" (%tmp-file) (%tmp-file)))))))
+
+
 (provide 'python-ex-util)
