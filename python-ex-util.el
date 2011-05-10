@@ -50,23 +50,43 @@
          (file-readable-p path)
          (funcall (or open 'find-file) path)))
 
-  (defun %current-rc ()
-    (format "~/.%src" (file-name-nondirectory (getenv "SHELL"))))
+  (defun %all-parent-path-candidates (head words)
+    "create all candidates: path -> (\"~/foo/bar/boo\" \"~/foo/bar\" \"~/foo\" \"~\")"
+    (loop for word in words
+          with acc = head
+          unless (string-equal "" word)
+          do (setq acc (concat acc "/" word))
+          and collect acc into result
+          finally return (nreverse (cons head result))))
+
+  (defun %check-target-is-exist-in-path (path target)
+    "checking targetted file is exist in path."
+    (destructuring-bind (head . words) (split-string path "/")
+      (@let1 candidates (%all-parent-path-candidates head words)
+        (lexical-let ((target target))
+          (find target candidates
+                :test (lambda (target path)
+                        (file-exists-p (concat path "/" target))))))))
+
+  ;; (defun %current-rc ()
+  ;;   (format "~/.%src" (file-name-nondirectory (getenv "SHELL"))))
 
   (defun %workon-path-maybe ()
     "if enable virtualenvwrapper then return workon home path"
     (getenv "WORKON_HOME"))
 
   (defun %current-env-maybe ()
-    (@and-let* ((workon-path (%workon-path-maybe))
-                (rx (format "%s/\\([^/]+\\)" (expand-file-name workon-path)))
-                ((string-match rx default-directory)))
-      (match-string 1 default-directory)))
+    (or (@and-let* ((workon-path (%workon-path-maybe))
+                    (rx (format "\\(%s/[^/]+\\)" (expand-file-name workon-path)))
+                    ((string-match rx default-directory)))
+          (match-string 1 default-directory))
+        (@and-let* ((dir default-directory))
+          (%check-target-is-exist-in-path dir "/bin/activate"))))
 
   (defun %command-format-with-current-env (cmd)
     "return format string branching venv or not"
-    (or (@and-let* ((env (%current-env-maybe)))
-          (format "(source %s && workon %s && %s %%s)" (%current-rc) env cmd))
+    (or (@and-let* ((env-path (%current-env-maybe)))
+          (format "(source %s/bin/activate && %s %%s)" env-path cmd))
         (format "%s %%s" cmd)))
 
   ;; default-functionを書き換えたいね。
