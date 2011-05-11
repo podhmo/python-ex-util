@@ -6,6 +6,62 @@
     ((@ python-ex-util:)
      (% peu:))
 
+  ;; macros
+  (defmacro @with-lexical-bindings (syms &rest body)
+    (let ((clauses (loop for sym in syms collect (\` ((\, sym) (\, sym))))))
+      (\` (lexical-let ((\,@ clauses)) (\,@ body)))))
+  (put '@with-lexical-bindings 'lisp-indent-function 1)
+
+  (defmacro @with-gensyms (syms &rest body)
+    (let ((bindings (mapcar (lambda (x) (\` ((\, x) '(\, (gensym))))) syms)))
+      (\` (let ((\,@ bindings)) (\,@ body)))))
+  (put '@with-gensyms 'lisp-indent-function 1)
+  
+  (defmacro @rlet1 (var val &rest body)
+    "imported from gauche"
+    (\` (@let1 (\, var) (\, val) (\,@ body) (\, var))))
+  (put '@rlet1 'lisp-indent-function 2)
+
+  (defmacro @let1 (var val &rest body)
+    "imported from gauche"
+    (\` (let (((\, var) (\, val))) (\,@ body))))
+  (put '@let1 'lisp-indent-function 2)
+
+  (defmacro @and-let* (bindings &rest body)
+    "imported from srfi-2"
+    (reduce (function
+             (lambda (binding r)
+               (let ((head (car binding)))
+                 (cond ((and (atom head) (symbolp head))
+                        (\` (let ((\, binding)) (when (\, head) (\, r)))))
+                       ((listp head)
+                        (\` (when (\, head) (\, r))))
+                       (t (error "and-let*: invalid head %s" head))))))
+            bindings
+            :from-end
+            t
+            :initial-value
+            (\` (progn (\,@ body)))))
+  (put '@and-let* 'lisp-indent-function 1)
+
+  (defmacro @alambda (args &rest body)
+    "Anaphoric lambda. enable to self recursion using `self' anaphorar"
+    (\` (labels ((self (\, args) (\,@ body))) (function self))))
+  (put '@alambda 'lisp-indent-function 1)
+
+  (defmacro @aand (&rest args)
+    "Anaphoric and. anaphorar is `it'"
+    (cond ((null args)
+           t)
+          ((null (cdr args))
+           (car args))
+          (t (\` (@aif (\, (car args)) (@aand (\,@ (cdr args))))))))
+
+  (defmacro @aif (test-form then-form &rest else-forms)
+    "Anaphoric if. Temporary variable `it' is the result of test-form."
+    (\` (let ((it (\, test-form))) (if it (\, then-form) (\,@ else-forms)))))
+  (put '@aif 'lisp-indent-function 2)
+
   ;; utility
   (defun %fresh-buffer-and-is-created (buf &optional force-erase-p)
     (cond ((and (stringp buf) (not (get-buffer buf)))
@@ -80,8 +136,8 @@
                     (rx (format "\\(%s/[^/]+\\)" (expand-file-name workon-path)))
                     ((string-match rx default-directory)))
           (match-string 1 default-directory))
-        (@and-let* ((dir default-directory))
-          (%check-target-is-exist-in-path dir "/bin/activate"))))
+        (let ((dir default-directory))
+          (and dir (%check-target-is-exist-in-path dir "/bin/activate")))))
 
   (defun %command-format-with-current-env (cmd)
     "return format string branching venv or not"
@@ -96,64 +152,7 @@
           (args-str (if (listp args) (mapconcat 'identity args " ") args)) 
           (cmd-format (%command-format-with-current-env cmd)))
       (funcall fun (format cmd-format args-str))))
-
-  ;; macros
-  (defmacro @with-lexical-bindings (syms &rest body)
-    (let ((clauses (loop for sym in syms collect (\` ((\, sym) (\, sym))))))
-      (\` (lexical-let ((\,@ clauses)) (\,@ body)))))
-  (put '@with-lexical-bindings 'lisp-indent-function 1)
-
-  (defmacro @with-gensyms (syms &rest body)
-    (let ((bindings (mapcar (lambda (x) (\` ((\, x) '(\, (gensym))))) syms)))
-      (\` (let ((\,@ bindings)) (\,@ body)))))
-  (put '@with-gensyms 'lisp-indent-function 1)
   
-  (defmacro @rlet1 (var val &rest body)
-    "imported from gauche"
-    (\` (@let1 (\, var) (\, val) (\,@ body) (\, var))))
-  (put '@rlet1 'lisp-indent-function 2)
-
-  (defmacro @let1 (var val &rest body)
-    "imported from gauche"
-    (\` (let (((\, var) (\, val))) (\,@ body))))
-  (put '@let1 'lisp-indent-function 2)
-
-  (defmacro @and-let* (bindings &rest body)
-    "imported from srfi-2"
-    (reduce (function
-             (lambda (binding r)
-               (let ((head (car binding)))
-                 (cond ((and (atom head) (symbolp head))
-                        (\` (let ((\, binding)) (when (\, head) (\, r)))))
-                       ((listp head)
-                        (\` (when (\, head) (\, r))))
-                       (t (error "and-let*: invalid head %s" head))))))
-            bindings
-            :from-end
-            t
-            :initial-value
-            (\` (progn (\,@ body)))))
-  (put '@and-let* 'lisp-indent-function 1)
-
-  (defmacro @alambda (args &rest body)
-    "Anaphoric lambda. enable to self recursion using `self' anaphorar"
-    (\` (labels ((self (\, args) (\,@ body))) (function self))))
-  (put '@alambda 'lisp-indent-function 1)
-
-  (defmacro @aand (&rest args)
-    "Anaphoric and. anaphorar is `it'"
-    (cond ((null args)
-           t)
-          ((null (cdr args))
-           (car args))
-          (t (\` (@aif (\, (car args)) (@aand (\,@ (cdr args))))))))
-
-  (defmacro @aif (test-form then-form &rest else-forms)
-    "Anaphoric if. Temporary variable `it' is the result of test-form."
-    (\` (let ((it (\, test-form))) (if it (\, then-form) (\,@ else-forms)))))
-  (put '@aif 'lisp-indent-function 2)
-  
-
   (defvar @standard-doc-url-base "http://docs.python.org/library")
 
   (defun @module-name-to-file-path (module &optional force-reload-p) ;;force-reload is not implemented
@@ -350,8 +349,8 @@
             (type . python-module)))
 
     (defun @anything-ffap () (interactive)
-      (@let1 sources (list anything-c-source-imenu
-                           @anything-c-source-imported-modules
+      (@let1 sources (list @anything-c-source-imported-modules
+                           anything-c-source-imenu
                            @anything-c-source-active-enves
                            @anything-c-source-all-modules)
         (anything-other-buffer sources " *ffap:python-ex:util*")))
