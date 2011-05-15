@@ -374,11 +374,11 @@
                            @anything-c-source-all-modules)
         (anything-other-buffer sources " *ffap:python-ex:util*")))
 
-    (defun @anything-insert-import-sentence (module &optional symbol)
+    (defun @anything-insert-import-sentence (candidate &optional symbol)
       (save-excursion
         (@let1 content
-            (cond (symbol (format "from %s import %s\n" module symbol))
-                  (t  (format "import %s\n" candidates)))
+            (cond (symbol (format "from %s import %s\n" candidate symbol))
+                  (t  (format "import %s\n" candidate)))
           (goto-char (point-min))
           (unless (search-forward content nil t 1)
             (goto-char (point-min))
@@ -388,7 +388,8 @@
 
     (define-anything-type-attribute 'python-module-insert
       '((persistent-action . @anything-insert-import-sentence)
-        (action . (("from * insert *" . 
+        (action . (("insert" . @anything-insert-import-sentence)
+                   ("from * insert *" . 
                     (lambda (c)
                       (run-with-timer 0.01 nil
                                       '@anything-insert-module-in-selected-module c))))))
