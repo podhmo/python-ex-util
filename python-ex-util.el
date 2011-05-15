@@ -1,5 +1,6 @@
 (require 'with-prefix)
 
+(setq debug-on-error t)
 (eval-when-compile (require 'cl))
 
 (with-prefix 
@@ -178,7 +179,6 @@
   (defun @module-name-to-web-page (module &optional force-reload-p) ;;force-reload is not implemented
     (or (@and-let* ((egg-info (@module-name-to-egg-info module force-reload-p))
                     (file (format "%s/PKG-INFO" egg-info)))
-          (message egg-info)
           (with-current-buffer (find-file-noselect file)
             (goto-char (point-min))
             (re-search-forward "Home-page: *\\(.+\\)" nil t 1)
@@ -284,10 +284,25 @@
         (setq @previous-python python)
         (%command-to-buffer-ansync "python-ex-util:all-module"
                                    bufname cmd reload-p call-back))))
-
+  
   (defun @all-modules-to-buffer-reload ()
     (message "collecting python module informations ...")
     (@all-modules-to-buffer 
+     t (lambda (buf) (message "... done"))))
+
+  (defun @imported-symbols-in-selected-module (&optional module force-reload-p call-back)
+    ;; return buffer
+    (@let1 python (@current-python-format)
+      (let* ((reload-p (or force-reload-p (not (string-equal @previous-python python))))
+             (cmd (format python (format "-c 'import inspect; import %s; ks = %s.__dict__.get(\"__all__\") or [k for k,v in %s.__dict__.items() if not k.startswith(\"_\") and not inspect.ismodule(v) and hasattr(v,\"__dict__\") and not v.__dict__.get(\"__module__\",None)]; print(\"\\n\".join(ks))'" module module module)))
+             (bufname "*python module symbols*"))
+        (setq @previous-python python)
+        (%command-to-buffer-ansync "python-ex-util:all-module"
+                                   bufname cmd reload-p call-back))))
+
+  (defun @imported-symbols-in-selected-module-reload (module)
+    (message "collecting python module(%s) informations ..." module)
+    (@imported-symbols-in-selected-module 
      t (lambda (buf) (message "... done"))))
 
   ;; anything
@@ -305,10 +320,15 @@
                   else
                   return (delete-duplicates modules :test 'string-equal))))))
 
+    (defun @anything-update-callback (buffer)
+      (anything-update)
+      buffer)
+
     (setq @anything-c-source-active-enves
           '((name . "active virturl envs")
             (candidates . (lambda () (@active-venv-list t)))
-            (update . @all-modules-to-buffer-reload)
+            (update . @all-modules-to-buffer-reload
+                    )
             ;;TODO: 便利なフローを考える
             (action . find-file)))
 
@@ -343,8 +363,7 @@
             (candidates-in-buffer)
             (init . (lambda () 
                       (anything-candidate-buffer
-                       (@all-modules-to-buffer 
-                        nil 'identity))))
+                       (@all-modules-to-buffer nil '@anything-update-callback))))
             (update .  @all-modules-to-buffer-reload)
             (type . python-module)))
 
@@ -355,81 +374,124 @@
                            @anything-c-source-all-modules)
         (anything-other-buffer sources " *ffap:python-ex:util*")))
 
+    (defun @anything-insert-import-sentence (module &optional symbol)
+      (save-excursion
+        (@let1 content
+            (cond (symbol (format "from %s import %s\n" module symbol))
+                  (t  (format "import %s\n" candidates)))
+          (goto-char (point-min))
+          (unless (search-forward content nil t 1)
+            (goto-char (point-min))
+            (while (looking-at "^#")
+              (forward-line 1))
+            (insert content)))))
+
+    (define-anything-type-attribute 'python-module-insert
+      '((persistent-action . @anything-insert-import-sentence)
+        (action . (("from * insert *" . 
+                    (lambda (c)
+                      (run-with-timer 0.01 nil
+                                      '@anything-insert-module-in-selected-module c))))))
+      "python module insert type")
+    
+
+    (setq @anything-c-source-insert-imported-modules
+          '((name . "imported modules")
+            (candidates . (lambda ()
+                            (@collect-imported-modules-in-buffer  anything-current-buffer)))
+            (update . @all-modules-to-buffer-reload)
+            (type . python-module-insert)))
+    
+
     (setq @anything-c-source-insert-module
           '((name . "python module insert")
             (candidates-in-buffer)
             (init . (lambda () 
                       (anything-candidate-buffer
-                       (@all-modules-to-buffer 
-                        nil 'identity))))
+                       (@all-modules-to-buffer nil '@anything-update-callback))))
             (update .  @all-modules-to-buffer-reload)
-            (action . (("insert" . 
-                        (lambda (c)
-                          (save-excursion
-                            (goto-char (point-min))
-                            (while (looking-at "^#")
-                              (forward-line 1))
-                            (insert "import" c "\n"))))))))
+            (type . python-module-insert)))
 
     (defun @anything-insert-module () (interactive)
-      (anything-other-buffer (list @anything-c-source-insert-module)
+      (anything-other-buffer (list @anything-c-source-insert-imported-modules ;;ここは過去のhistoryの方がありがたいかな？
+                                   @anything-c-source-insert-module)
                              " *insert:python-ex:util*"))
-    ))
 
-;; test
+    (defun @anything-c-source-insert-symbol-in-selected-module (module)
+      `((name . ,(format "python module(%s)" module))
+        (candidates-in-buffer)
+        (init . (lambda ()
+                  (anything-candidate-buffer
+                   (@imported-symbols-in-selected-module
+                    module t '@anything-update-callback)))) ;;全部生成で良かったかも？
+        (update . (lambda () 
+                    (imported-symbols-in-selected-module-reload ,module)))
+        (persistent-action . (lambda (c) 
+                               (@anything-insert-import-sentence ,module c)))
+        (action . (("from * insert *" .
+                    (lambda (c)
+                      (@anything-insert-import-sentence ,module c)))))))
 
-;; 41:  (defun %shell-command-to-string* (command)
-;; 45:  ;; (defun %first-line-in-string (str)
-;; 48:  (defun* %find-file-safe (path &key open)
-;; 53:  (defun %current-rc ()
-;; 56:  (defun %workon-path-maybe ()
-;; 60:  (defun %current-env-maybe ()
-;; 66:  (defun %command-format-with-current-env (cmd)
-;; 73:  (defun %execute-command-with-current-env (cmd args &optional execute-function)
+    (defun @anything-insert-module-in-selected-module (module)
+      (@let1 source (@anything-c-source-insert-symbol-in-selected-module module)
+        (anything-other-buffer (list source) " *insert:python-ex:util*")))
 
-(when (require 'chibi-test nil t)
-  (with-shortcut-current-buffer
-   (with-chibi-test*
-    (section: "util"
-              (section "%fresh-buffer-and-is-created"
-                       (@let1 bufname "*f*"
-                         (when (get-buffer bufname) (kill-buffer bufname))
-                         
-                         (test-true: "get fresh new buffer" 
-                                     (multiple-value-bind (buf is-new-p)
-                                         (%fresh-buffer-and-is-created bufname)
-                                       (and (bufferp buf) (buffer-live-p buf)
-                                            is-new-p)))
-                         
-                         (test-true: "get fresh but not new buffer"
-                                     (multiple-value-bind (buf is-new-p)
-                                         (%fresh-buffer-and-is-created bufname)
-                                       (and (bufferp buf) (buffer-live-p buf)
-                                            (null is-new-p))))
+    ;; test
 
-                         
-                         (test-true: "get fresh buffer (of course, buffer-string is zero length)"
-                                     (progn
+    ;; 41:  (defun %shell-command-to-string* (command)
+    ;; 45:  ;; (defun %first-line-in-string (str)
+    ;; 48:  (defun* %find-file-safe (path &key open)
+    ;; 53:  (defun %current-rc ()
+    ;; 56:  (defun %workon-path-maybe ()
+    ;; 60:  (defun %current-env-maybe ()
+    ;; 66:  (defun %command-format-with-current-env (cmd)
+    ;; 73:  (defun %execute-command-with-current-env (cmd args &optional execute-function)
+
+    (dont-compile
+      (when (and (require 'chibi-test nil t) (not load-in-progress))
+        (with-chibi-test*
+         (section: "util"
+                   (section "%fresh-buffer-and-is-created"
+                            (@let1 bufname "*f*"
+                              (when (get-buffer bufname) (kill-buffer bufname))
+    
+                              (test-true: "get fresh new buffer" 
+                                          (multiple-value-bind (buf is-new-p)
+                                              (%fresh-buffer-and-is-created bufname)
+                                            (and (bufferp buf) (buffer-live-p buf)
+                                                 is-new-p)))
+    
+                              (test-true: "get fresh but not new buffer"
+                                          (multiple-value-bind (buf is-new-p)
+                                              (%fresh-buffer-and-is-created bufname)
+                                            (and (bufferp buf) (buffer-live-p buf)
+                                                 (null is-new-p))))
+
+    
+                              (test-true: "get fresh buffer (of course, buffer-string is zero length)"
+                                          (progn
+                                            (with-current-buffer (get-buffer bufname)
+                                              (insert "heheheh"))
+                                            (multiple-value-bind (buf is-new-p)
+                                                (%fresh-buffer-and-is-created bufname t)
+                                              (and (bufferp buf) (buffer-live-p buf)
+                                                   (zerop (length (with-current-buffer buf (buffer-string))))))))))
+
+                   (section "%command-to-buffer-ansync"
+                            (let ((bufname  "*buf*"))
+                              (test: "async ???" ""
+                                     (@with-lexical-bindings (bufname)
+                                       (%command-to-buffer-ansync 
+                                        "ls" bufname "ls" t 
+                                        (lambda (b)
+                                          (test-not: "async !!!" 0 (with-current-buffer b (buffer-string)))))
                                        (with-current-buffer (get-buffer bufname)
-                                         (insert "heheheh"))
-                                       (multiple-value-bind (buf is-new-p)
-                                           (%fresh-buffer-and-is-created bufname t)
-                                         (and (bufferp buf) (buffer-live-p buf)
-                                              (zerop (length (with-current-buffer buf (buffer-string))))))))))
+                                         (buffer-string))))))
 
-              (section "%command-to-buffer-ansync"
-                       (let ((bufname  "*buf*"))
-                         (test: "async ???" ""
-                                (@with-lexical-bindings (bufname)
-                                  (%command-to-buffer-ansync 
-                                   "ls" bufname "ls" t 
-                                   (lambda (b)
-                                     (test-not: "async !!!" 0 (with-current-buffer b (buffer-string)))))
-                                  (with-current-buffer (get-buffer bufname)
-                                    (buffer-string))))))
-
-              (section "%tmp-file"
-                       (test-not "tmp-file generate uniq filename" (%tmp-file) (%tmp-file)))))))
+                   (section "%tmp-file"
+                            (test-not "tmp-file generate uniq filename" (%tmp-file) (%tmp-file)))))))))
 
 
 (provide 'python-ex-util)
+
+
