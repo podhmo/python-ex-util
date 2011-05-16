@@ -294,7 +294,7 @@
     ;; return buffer
     (@let1 python (@current-python-format)
       (let* ((reload-p (or force-reload-p (not (string-equal @previous-python python))))
-             (cmd (format python (format "-c 'import inspect; import %s; ks = %s.__dict__.get(\"__all__\") or [k for k,v in %s.__dict__.items() if not k.startswith(\"_\") and not inspect.ismodule(v) and hasattr(v,\"__dict__\") and not v.__dict__.get(\"__module__\",None)]; print(\"\\n\".join(ks))'" module module module)))
+             (cmd (format python (format "-c 'import inspect; import %s; ks = %s.__dict__.get(\"__all__\") or [k for k,v in %s.__dict__.items() if not k.startswith(\"_\") and not inspect.ismodule(v) and hasattr(v,\"__dict__\") and (not v.__dict__.get(\"__module__\",None) or v.__dict__[\"__module__\"] == \"%s\")]; print(\"\\n\".join(ks))'" module module module module)))
              (bufname "*python module symbols*"))
         (setq @previous-python python)
         (%command-to-buffer-ansync "python-ex-util:all-module"
@@ -372,7 +372,7 @@
                            anything-c-source-imenu
                            @anything-c-source-active-enves
                            @anything-c-source-all-modules)
-        (anything-other-buffer sources " *ffap:python-ex:util*")))
+        (anything-other-buffer sources (get-buffer-create " *ffap:python-ex:util*"))))
 
     (defun @anything-insert-import-sentence (candidate &optional symbol)
       (save-excursion
@@ -416,7 +416,7 @@
     (defun @anything-insert-module () (interactive)
       (anything-other-buffer (list @anything-c-source-insert-imported-modules ;;ここは過去のhistoryの方がありがたいかな？
                                    @anything-c-source-insert-module)
-                             " *insert:python-ex:util*"))
+                             (get-buffer-create " *insert:python-ex:util*")))
 
     (defun @anything-c-source-insert-symbol-in-selected-module (module)
       `((name . ,(format "python module(%s)" module))
@@ -435,7 +435,7 @@
 
     (defun @anything-insert-module-in-selected-module (module)
       (@let1 source (@anything-c-source-insert-symbol-in-selected-module module)
-        (anything-other-buffer (list source) " *insert:python-ex:util*")))
+        (anything-other-buffer (list source) (get-buffer-create " *insert:python-ex:util*"))))
 
     ;; test
 
